@@ -1,80 +1,90 @@
-import googlemaps
-import pandas as pd
 import time
 
-# distance conversion
-def milesToMeters(miles):
+import googlemaps
+import pandas as pd
+
+MIN_RADIUS_MILES = 0.5
+MAX_RADIUS_MILES = 25.0
+
+
+def miles_to_meters(miles):
     try:
+        miles = float(miles)
+        if miles < MIN_RADIUS_MILES or miles > MAX_RADIUS_MILES:
+            raise ValueError(f"Radius must be between {MIN_RADIUS_MILES} and {MAX_RADIUS_MILES} miles.")
         return miles * 1609.34
-    except:
-        return 0
-    
-API_KEY = open("API_KEY.txt", "r").read().strip()
-mapClient = googlemaps.Client(API_KEY)
+    except (TypeError, ValueError):
+        raise ValueError(f"Please enter a number between {MIN_RADIUS_MILES} and {MAX_RADIUS_MILES} miles.")
 
-# Search location (latitude, longitude)
-location = (51.60747338122455, 0.21888261375406246)
-# Search parameters
-searchString = "grocery"
-# Search radius in meters
-distance = milesToMeters(1) 
-# List that holds all found businesses
-businesses = []
 
-response = mapClient.places_nearby(
-    location=location,
-    radius=distance,
-    name=searchString,
-    keyword=searchString
-)
+def geocode_location(map_client, location_name):
+    geocode_result = map_client.geocode(location_name)
+    if not geocode_result:
+        raise ValueError("Location could not be found. Try a more specific place name.")
 
-businesses.extend(response.get('results'))
+    geometry = geocode_result[0]["geometry"]["location"]
+    return float(geometry["lat"]), float(geometry["lng"])
 
-print(f"Found {len(businesses)} results.")
-#print(businesses[0])
 
-nextPageToken = response.get('next_page_token')
+def get_nearby_places(search_string, location, distance, map_client):
+    businesses = []
 
-while nextPageToken:
-    time.sleep(2)  # Pause to allow token to become valid
-    response = mapClient.places_nearby(
+    response = map_client.places_nearby(
         location=location,
         radius=distance,
-        name=searchString,
-        keyword=searchString,
-        page_token=nextPageToken
+        name=search_string,
+        keyword=search_string
     )
+
     businesses.extend(response.get('results'))
-    nextPageToken = response.get('next_page_token')
+    next_page_token = response.get('next_page_token')
 
-# Save results to excel file
-df = pd.DataFrame(businesses)
-df['url'] = 'https://www.google.com/maps/place/?q=place_id:' + df['place_id']
-df.to_excel('{0}.xlsx'.format("Test "+searchString), index=False)
+    while next_page_token:
+        time.sleep(2)
+        response = map_client.places_nearby(
+            location=location,
+            radius=distance,
+            name=search_string,
+            keyword=search_string,
+            page_token=next_page_token
+        )
+        businesses.extend(response.get('results'))
+        next_page_token = response.get('next_page_token')
 
-# Function for getting nearby places
-#def getNearbyPlaces(searchString, location, distance):
-#    response = mapClient.places_nearby(
-#        location=location,
-#        radius=distance,
-#        name=searchString,
-#        keyword=searchString
-#    )
-#
-#    businesses = []
-#    businesses.extend(response.get('results'))
-#    nextPageToken = response.get('next_page_token')
-#
-#    while nextPageToken:
-#        time.sleep(2)  # Pause to allow token to become valid
-#        response = mapClient.places_nearby(
-#            location=location,
-#            radius=distance,
-#            name=searchString,
-#            keyword=searchString,
-#            page_token=nextPageToken
-#        )
-#        businesses.extend(response.get('results'))
-#        nextPageToken = response.get('next_page_token')
-#
-#    return businesses
+    return businesses
+
+
+def main():
+    api_key = open("API_KEY.txt", "r").read().strip()
+    map_client = googlemaps.Client(api_key)
+
+    search_string = "grocery"
+
+    while True:
+        location_name = input("Enter a location to search: ").strip()
+        if location_name:
+            try:
+                location = geocode_location(map_client, location_name)
+                break
+            except ValueError as exc:
+                print(f"Location error: {exc}")
+
+    while True:
+        radius_input = input(f"Enter search radius in miles ({MIN_RADIUS_MILES}-{MAX_RADIUS_MILES}): ").strip()
+        try:
+            distance = miles_to_meters(radius_input)
+            break
+        except ValueError as exc:
+            print(f"Invalid radius: {exc}")
+
+    businesses = get_nearby_places(search_string, location, distance, map_client)
+    print(f"Found {len(businesses)} results near {location_name}.")
+
+    df = pd.DataFrame(businesses)
+    if not df.empty and 'place_id' in df.columns:
+        df['url'] = 'https://www.google.com/maps/place/?q=place_id:' + df['place_id']
+    df.to_excel(f"Test {search_string} {location_name}.xlsx", index=False)
+
+
+if __name__ == "__main__":
+    main()

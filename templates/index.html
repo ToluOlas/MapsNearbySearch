@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nearby Grocery Finder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <div class="page">
+      <aside class="panel">
+        <h1>Nearby Grocery Finder</h1>
+
+        <form id="search-form">
+          <label for="location-input">Location</label>
+          <input
+            id="location-input"
+            type="text"
+            name="location"
+            placeholder="e.g. London, UK"
+            required
+          />
+
+          <label for="radius-input">Radius in miles</label>
+          <input
+            id="radius-input"
+            type="number"
+            name="radius"
+            min="0.5"
+            max="25"
+            step="0.5"
+            value="2"
+            required
+          />
+
+          <button type="submit">Search nearby stores</button>
+        </form>
+
+        <div class="legend">
+          <p>Radius limit: 0.5 to 25 miles</p>
+        </div>
+
+        <ul id="results-list" class="results-list"></ul>
+      </aside>
+
+      <main class="map-wrap">
+        <div id="map"></div>
+      </main>
+    </div>
+
+    <script>
+      const apiKey = "{{ api_key }}";
+      const maxRadiusMiles = Number("{{ max_radius }}");
+    </script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}&callback=initMap"></script>
+  </body>
+</html>
