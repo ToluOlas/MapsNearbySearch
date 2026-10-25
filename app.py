@@ -6,7 +6,24 @@ from flask import Flask, jsonify, render_template, request
 import googlemaps
 
 BASE_DIR = Path(__file__).resolve().parent
-API_KEY = (BASE_DIR / "API_KEY.txt").read_text(encoding="utf-8").strip()
+KEY_FILE = BASE_DIR / "API_KEY.txt"
+
+
+def load_api_key():
+    api_key = os.environ.get("GOOGLE_MAPS_API_KEY", "").strip()
+    if not api_key and KEY_FILE.exists():
+        api_key = KEY_FILE.read_text(encoding="utf-8").strip()
+
+    if not api_key.startswith("AIza"):
+        raise SystemExit(
+            "No valid Google Maps API key found.\n"
+            "Set the GOOGLE_MAPS_API_KEY environment variable, or put the key in API_KEY.txt.\n"
+            "The key needs the Maps JavaScript API, Geocoding API and Places API enabled."
+        )
+    return api_key
+
+
+API_KEY = load_api_key()
 CLIENT = googlemaps.Client(API_KEY)
 
 app = Flask(__name__)
@@ -85,10 +102,15 @@ def search():
 
     try:
         center = geocode_location(location_name)
+        places = get_nearby_places(center, radius_miles, "grocery")
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+    except googlemaps.exceptions.ApiError as exc:
+        # e.g. REQUEST_DENIED when the key lacks Geocoding/Places access
+        return jsonify({"error": f"Google Maps API error: {exc}"}), 502
+    except (googlemaps.exceptions.TransportError, googlemaps.exceptions.Timeout) as exc:
+        return jsonify({"error": f"Could not reach Google Maps: {exc}"}), 502
 
-    places = get_nearby_places(center, radius_miles, "grocery")
     results = []
     for place in places:
         geometry = place.get("geometry", {}).get("location", {})

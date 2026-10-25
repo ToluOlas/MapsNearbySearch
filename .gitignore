@@ -1,0 +1,9 @@
+# Secrets
+API_KEY.txt
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
