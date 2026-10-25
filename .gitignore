@@ -2,6 +2,9 @@
 API_KEY.txt
 .env
 
+# Local data
+cache.db
+
 # Python
 __pycache__/
 *.pyc

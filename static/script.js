@@ -208,7 +208,12 @@ async function handleSearch(event) {
     showResults(data.results);
 
     const count = data.results.length;
-    setStatus(count ? `Found ${count} store${count === 1 ? "" : "s"}, nearest first.` : "No grocery stores found in this area.");
+    const source = data.cached ? " (cached)" : "";
+    setStatus(
+      count
+        ? `Found ${count} store${count === 1 ? "" : "s"}, nearest first${source}.`
+        : `No grocery stores found in this area${source}.`
+    );
   } catch (error) {
     setStatus(error.message || "Something went wrong.", true);
   } finally {

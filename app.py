@@ -7,8 +7,11 @@ from pathlib import Path
 import requests
 from flask import Flask, jsonify, render_template, request
 
+from cache import Cache
+
 BASE_DIR = Path(__file__).resolve().parent
 KEY_FILE = BASE_DIR / "API_KEY.txt"
+CACHE_PATH = BASE_DIR / "cache.db"
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 # Public Overpass servers are free but can be slow or busy, so fall back to a mirror
@@ -25,7 +28,15 @@ MAX_RADIUS_MILES = 25.0
 MIN_RADIUS_MILES = 0.5
 COORDINATES_PATTERN = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$")
 
+GEOCODE_CACHE_SECONDS = 30 * 24 * 3600
+STORES_CACHE_SECONDS = 7 * 24 * 3600
+# Store searches are cached per ~100 m grid cell. A cached circle is reused if it covers
+# the new one, with this much slack so tiny centre shifts still count as the same search.
+CACHE_CELL_TOLERANCE_MILES = 0.1
+
 app = Flask(__name__)
+CACHE = Cache(CACHE_PATH)
+CACHE.prune(max(GEOCODE_CACHE_SECONDS, STORES_CACHE_SECONDS))
 
 
 def load_api_key():
@@ -86,18 +97,33 @@ def geocode_location(location_name):
             location = geocode_result[0]["geometry"]["location"]
             return float(location["lat"]), float(location["lng"])
     else:
-        response = requests.get(
-            NOMINATIM_URL,
-            params={"q": location_name, "format": "jsonv2", "limit": 1},
-            headers=OSM_HEADERS,
-            timeout=10,
-        )
-        response.raise_for_status()
-        geocode_result = response.json()
-        if geocode_result:
-            return float(geocode_result[0]["lat"]), float(geocode_result[0]["lon"])
+        coordinates = osm_geocode(location_name)
+        if coordinates:
+            return coordinates
 
     raise ValueError("Location could not be found. Please try a more specific place name.")
+
+
+def osm_geocode(location_name):
+    cache_key = "geocode:" + " ".join(location_name.lower().split())
+    cached = CACHE.get(cache_key, GEOCODE_CACHE_SECONDS)
+    if cached:
+        return tuple(cached)
+
+    response = requests.get(
+        NOMINATIM_URL,
+        params={"q": location_name, "format": "jsonv2", "limit": 1},
+        headers=OSM_HEADERS,
+        timeout=10,
+    )
+    response.raise_for_status()
+    geocode_result = response.json()
+    if not geocode_result:
+        return None
+
+    coordinates = float(geocode_result[0]["lat"]), float(geocode_result[0]["lon"])
+    CACHE.put(cache_key, coordinates)
+    return coordinates
 
 
 def distance_miles(origin, lat, lng):
@@ -203,6 +229,52 @@ def osm_nearby_stores(center, radius_miles):
     return stores
 
 
+def stores_cache_prefix(center):
+    return f"stores:{center[0]:.3f},{center[1]:.3f}:"
+
+
+def nearby_cache_entries(center):
+    # Check the surrounding cells too, so a point just across a cell boundary still hits
+    for lat_step in (-0.001, 0, 0.001):
+        for lng_step in (-0.001, 0, 0.001):
+            prefix = stores_cache_prefix((center[0] + lat_step, center[1] + lng_step))
+            yield from CACHE.find(prefix, STORES_CACHE_SECONDS)
+
+
+def cached_osm_stores(center, radius_miles):
+    """Reuse a fresh cached search whose circle covers this one, re-measured from the new centre."""
+    for entry in nearby_cache_entries(center):
+        offset = distance_miles(entry["center"], center[0], center[1])
+        if offset + radius_miles > entry["radius_miles"] + CACHE_CELL_TOLERANCE_MILES:
+            continue
+
+        stores = []
+        for store in entry["stores"]:
+            distance = round(distance_miles(center, store["lat"], store["lng"]), 2)
+            if distance <= radius_miles:
+                stores.append({**store, "distance_miles": distance})
+        return stores
+    return None
+
+
+def find_stores(center, radius_miles):
+    """Return (stores, from_cache)."""
+    if PROVIDER == "google":
+        # Google's terms restrict storing Places data, so Google results aren't cached
+        return google_nearby_stores(center, radius_miles), False
+
+    stores = cached_osm_stores(center, radius_miles)
+    if stores is not None:
+        return stores, True
+
+    stores = osm_nearby_stores(center, radius_miles)
+    CACHE.put(
+        stores_cache_prefix(center) + str(radius_miles),
+        {"center": center, "radius_miles": radius_miles, "stores": stores},
+    )
+    return stores, False
+
+
 @app.get("/")
 def index():
     return render_template(
@@ -230,10 +302,7 @@ def search():
 
     try:
         center = geocode_location(location_name)
-        if PROVIDER == "google":
-            stores = google_nearby_stores(center, radius_miles)
-        else:
-            stores = osm_nearby_stores(center, radius_miles)
+        stores, from_cache = find_stores(center, radius_miles)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     except UPSTREAM_ERRORS as exc:
@@ -246,6 +315,7 @@ def search():
             "center": {"lat": center[0], "lng": center[1]},
             "radiusMiles": radius_miles,
             "results": stores,
+            "cached": from_cache,
         }
     )
 
