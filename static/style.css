@@ -62,6 +62,21 @@ button:hover {
   background: #1d4ed8;
 }
 
+button:disabled {
+  background: #93a5c8;
+  cursor: wait;
+}
+
+.status {
+  margin: 12px 0 0;
+  font-size: 0.9rem;
+  color: #374151;
+}
+
+.status.error {
+  color: #b91c1c;
+}
+
 .legend {
   margin-top: 16px;
   color: #4b5563;
@@ -84,6 +99,11 @@ button:hover {
   border-radius: 10px;
   padding: 12px;
   background: #f9fbff;
+  cursor: pointer;
+}
+
+.results-list li:hover {
+  border-color: #93b4f0;
 }
 
 .results-list h3 {

@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Nearby Grocery Finder</title>
+    {% if provider == "osm" %}
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    {% endif %}
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
   </head>
   <body>
@@ -17,7 +25,7 @@
             id="location-input"
             type="text"
             name="location"
-            placeholder="e.g. London, UK"
+            placeholder="e.g. London, UK, or click the map"
             required
           />
 
@@ -26,8 +34,8 @@
             id="radius-input"
             type="number"
             name="radius"
-            min="0.5"
-            max="25"
+            min="{{ min_radius }}"
+            max="{{ max_radius }}"
             step="0.5"
             value="2"
             required
@@ -37,9 +45,11 @@
         </form>
 
         <div class="legend">
-          <p>Radius limit: 0.5 to 25 miles</p>
+          <p>Radius limit: {{ min_radius }} to {{ max_radius }} miles</p>
+          <p>Map data: {{ "Google Maps" if provider == "google" else "OpenStreetMap" }}</p>
         </div>
 
+        <p id="status" class="status" role="status"></p>
         <ul id="results-list" class="results-list"></ul>
       </aside>
 
@@ -49,10 +59,20 @@
     </div>
 
     <script>
-      const apiKey = "{{ api_key }}";
+      const MAPS_PROVIDER = "{{ provider }}";
+      const minRadiusMiles = Number("{{ min_radius }}");
       const maxRadiusMiles = Number("{{ max_radius }}");
     </script>
+    {% if provider == "osm" %}
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    {% else %}
     <script src="{{ url_for('static', filename='script.js') }}"></script>
     <script async defer src="https://maps.googleapis.com/maps/api/js?key={{ api_key }}&callback=initMap"></script>
+    {% endif %}
   </body>
 </html>
